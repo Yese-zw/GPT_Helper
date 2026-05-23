@@ -1,0 +1,47 @@
+{
+  "manifest_version": 3,
+  "name": "ChatGPT 账号入库助手",
+  "version": "0.1.0",
+  "incognito": "split",
+  "description": "自动完成 OpenAI 注册、Codex OAuth 授权与 SUB2API 账号入库流程",
+  "permissions": [
+    "sidePanel",
+    "tabs",
+    "storage",
+    "cookies",
+    "scripting",
+    "webNavigation",
+    "debugger"
+  ],
+  "host_permissions": [
+    "https://chatgpt.com/*",
+    "https://auth.openai.com/*",
+    "https://auth0.openai.com/*",
+    "https://accounts.openai.com/*",
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "side_panel": {
+    "default_path": "sidepanel/sidepanel.html"
+  },
+  "action": {
+    "default_title": "ChatGPT 账号入库助手"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://auth.openai.com/*",
+        "https://auth0.openai.com/*",
+        "https://accounts.openai.com/*"
+      ],
+      "js": [
+        "content/openai-flow.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}

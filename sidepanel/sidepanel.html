@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ChatGPT 账号入库助手</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="app-title">
+      <p class="eyebrow">OpenAI OAuth Automation</p>
+      <h1>ChatGPT 账号入库助手</h1>
+    </div>
+    <div class="header-actions" aria-label="设置导入导出">
+      <button id="btn-export-settings" class="header-action-btn" type="button">导出设置</button>
+      <button id="btn-import-settings" class="header-action-btn" type="button">导入设置</button>
+    </div>
+  </header>
+  <input id="input-import-settings" type="file" accept="application/json,.json" hidden>
+
+  <nav class="mode-tabs" role="tablist" aria-label="运行模式">
+    <button class="mode-tab is-active" type="button" data-mode-tab="semi-auto" aria-selected="true">半自动模式</button>
+    <button class="mode-tab" type="button" data-mode-tab="json-import" aria-selected="false">一键导入 JSON 模式</button>
+  </nav>
+
+  <main class="mode-panel is-active" data-mode-panel="semi-auto">
+    <section class="card">
+      <div class="card-title-row">
+        <h2>启动前设置</h2>
+        <button id="btn-reset" class="ghost-btn" type="button">重置</button>
+      </div>
+      <div class="settings-tabs" role="tablist" aria-label="启动前设置">
+        <button class="tab-btn is-active" type="button" data-tab="email-pool">邮箱号池</button>
+        <button class="tab-btn" type="button" data-tab="phone-pool">手机号池</button>
+        <button class="tab-btn" type="button" data-tab="sub2api-config">SUB2API 配置</button>
+      </div>
+
+      <div class="tab-panel is-active" data-panel="email-pool">
+        <label class="field">
+          <span>邮箱列表（一行一个）</span>
+          <textarea id="input-email" rows="7" placeholder="user1@example.com&#10;user2@example.com"></textarea>
+        </label>
+        <label class="field">
+          <span>密码</span>
+          <input id="input-password" type="password" placeholder="账户密码，留空则自动生成">
+        </label>
+      </div>
+
+      <div class="tab-panel" data-panel="phone-pool">
+        <label class="field">
+          <span>手机号池（一行一个：手机号----短信验证码接收链接）</span>
+          <textarea id="input-phone-pool" rows="7" placeholder="+16282895165----https://cdc.smslease.link/adminapi/jsscript/smsInfo/ABC_sms?key=xxx&#10;+16282895166----https://cdc.smslease.link/adminapi/jsscript/smsInfo/DEF_sms?key=xxx"></textarea>
+        </label>
+      </div>
+
+      <div class="tab-panel" data-panel="sub2api-config">
+        <label class="field">
+          <span>SUB2API 地址</span>
+          <input id="input-sub2api-url" type="text" placeholder="http://localhost:8080">
+        </label>
+        <label class="field">
+          <span>SUB2API Admin API Key</span>
+          <input id="input-sub2api-admin-key" type="text" placeholder="admin-xxxx">
+        </label>
+        <label class="field">
+          <span>SUB2API OpenAI 分组</span>
+          <div class="inline-control">
+            <select id="input-sub2api-openai-group">
+              <option value="OpenAI">OpenAI</option>
+            </select>
+            <button id="btn-load-groups" class="ghost-btn" type="button">获取分组</button>
+          </div>
+        </label>
+        <label class="field">
+          <span>SUB2API 回调地址</span>
+          <input id="input-sub2api-redirect-uri" type="text" placeholder="http://localhost:1455/auth/callback">
+        </label>
+      </div>
+
+      <div class="button-stack">
+        <button id="btn-start-auto" class="primary-btn" type="button">开始全自动流程</button>
+        <button id="btn-stop-auto" class="danger-btn" type="button">停止全流程</button>
+        <button id="btn-save" class="secondary-btn" type="button">保存设置</button>
+      </div>
+      <p id="save-tip" class="save-tip" hidden>设置已保存</p>
+    </section>
+
+    <section class="card">
+      <h2>流程</h2>
+      <div class="status-panel">
+        <span>当前状态</span>
+        <strong id="current-status">等待开始</strong>
+      </div>
+      <ol id="steps" class="steps"></ol>
+    </section>
+
+    <section class="card">
+      <div class="log-header">
+        <h2>日志</h2>
+        <button id="btn-clear-log" class="ghost-btn" type="button">清空</button>
+      </div>
+      <pre id="log-area" class="log-area"></pre>
+    </section>
+  </main>
+
+  <main class="mode-panel" data-mode-panel="json-import">
+    <section class="card">
+      <h2>一键导入 JSON</h2>
+      <label class="field">
+        <span>SUB2API 地址</span>
+        <input id="input-json-sub2api-url" type="text" placeholder="http://localhost:8080">
+      </label>
+      <label class="field">
+        <span>SUB2API Admin API Key</span>
+        <input id="input-json-sub2api-admin-key" type="text" placeholder="admin-xxxx">
+      </label>
+      <label class="field">
+        <span>SUB2API OpenAI 分组</span>
+        <div class="inline-control">
+          <select id="input-json-sub2api-openai-group">
+            <option value="OpenAI">OpenAI</option>
+          </select>
+          <button id="btn-json-load-groups" class="ghost-btn" type="button">获取分组</button>
+        </div>
+      </label>
+      <label class="field">
+        <span>本地 JSON 文件目录</span>
+        <div class="directory-picker">
+          <input id="input-json-directory-label" type="text" value="未选择目录" readonly>
+          <button id="btn-json-pick-directory" class="ghost-btn" type="button">选择目录</button>
+        </div>
+      </label>
+      <div class="button-stack single">
+        <button id="btn-json-start-import" class="primary-btn" type="button">启动导入</button>
+        <button id="btn-json-save" class="secondary-btn" type="button">保存设置</button>
+      </div>
+      <p id="json-save-tip" class="save-tip" hidden>设置已保存</p>
+    </section>
+
+    <section class="card">
+      <h2>导入进度</h2>
+      <div class="status-panel">
+        <span>当前导入</span>
+        <strong id="json-current-account">等待启动</strong>
+      </div>
+      <div class="json-progress-grid">
+        <div>
+          <span>序号</span>
+          <strong id="json-current-index">0 / 0</strong>
+        </div>
+        <div>
+          <span>成功</span>
+          <strong id="json-success-count">0</strong>
+        </div>
+        <div>
+          <span>失败</span>
+          <strong id="json-failed-count">0</strong>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="log-header">
+        <h2>导入日志</h2>
+        <button id="btn-json-clear-log" class="ghost-btn" type="button">清空</button>
+      </div>
+      <pre id="json-log-area" class="log-area"></pre>
+    </section>
+  </main>
+
+  <div id="code-dialog" class="dialog-backdrop" hidden>
+    <form id="code-form" class="dialog-card">
+      <h2 id="code-dialog-title">输入验证码</h2>
+      <p id="code-dialog-description">把收到的验证码填在这里，插件会自动写入页面并点击继续。</p>
+      <input id="input-email-code" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="例如 123456">
+      <div class="dialog-actions">
+        <button id="btn-code-cancel" class="ghost-btn" type="button">取消</button>
+        <button class="primary-btn" type="submit">填入并继续</button>
+      </div>
+    </form>
+  </div>
+
+  <div id="callback-dialog" class="dialog-backdrop" hidden>
+    <form id="callback-form" class="dialog-card">
+      <h2>回填授权链接或 Code</h2>
+      <p>授权完成后，把浏览器地址栏里的 localhost 回调完整链接填进来；也支持只填 code，但推荐完整链接。</p>
+      <textarea id="input-callback-url" rows="5" placeholder="http://localhost:1455/auth/callback?code=...&state=..."></textarea>
+      <div class="dialog-actions">
+        <button id="btn-callback-cancel" class="ghost-btn" type="button">取消</button>
+        <button class="primary-btn" type="submit">创建账号</button>
+      </div>
+    </form>
+  </div>
+
+  <div id="phone-pool-dialog" class="dialog-backdrop" hidden>
+    <form id="phone-pool-form" class="dialog-card">
+      <h2>补充手机号</h2>
+      <p>当前号码不可用。请填入新的手机号和接码链接，格式为：手机号----短信验证码接收链接。</p>
+      <textarea id="input-phone-pool-entry" rows="4" placeholder="+19492260070----https://cdc.smslease.link/adminapi/jsscript/smsInfo/ABC_sms?key=xxxx"></textarea>
+      <div class="dialog-actions">
+        <button id="btn-phone-pool-cancel" class="ghost-btn" type="button">取消</button>
+        <button class="primary-btn" type="submit">继续流程</button>
+      </div>
+    </form>
+  </div>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>
