@@ -16,6 +16,7 @@ const STEPS = [
   { id: 'close-current-tab', title: '关闭当前标签页' },
   { id: 'prepare-next-run', title: '准备下一轮' },
 ];
+const GITHUB_LATEST_RELEASE_API = 'https://api.github.com/repos/Yese-zw/GPT_Helper/releases/latest';
 
 const dom = {
   email: document.getElementById('input-email'),
@@ -47,6 +48,12 @@ const dom = {
   exportSettings: document.getElementById('btn-export-settings'),
   importSettings: document.getElementById('btn-import-settings'),
   importSettingsInput: document.getElementById('input-import-settings'),
+  releaseUpdate: document.getElementById('release-update'),
+  releaseTitle: document.getElementById('release-title'),
+  releaseVersion: document.getElementById('release-version'),
+  releaseBody: document.getElementById('release-body'),
+  openRelease: document.getElementById('btn-open-release'),
+  releaseExportSettings: document.getElementById('btn-release-export-settings'),
   saveTip: document.getElementById('save-tip'),
   reset: document.getElementById('btn-reset'),
   clearLog: document.getElementById('btn-clear-log'),
@@ -81,6 +88,8 @@ let saveTipTimer = null;
 let jsonSaveTipTimer = null;
 let jsonImportRunning = false;
 let jsonDirectoryHandle = null;
+let latestReleaseUrl = '';
+let forceUpdateRequired = false;
 
 function sendMessage(message) {
   return chrome.runtime.sendMessage(message).then((response) => {
@@ -91,6 +100,24 @@ function sendMessage(message) {
     }
     return response;
   });
+}
+
+function extractVersion(value) {
+  const match = String(value || '').match(/(\d+(?:\.\d+){0,3})/);
+  return match ? match[1] : '';
+}
+
+function compareVersions(left, right) {
+  const leftParts = extractVersion(left).split('.').map((item) => Number(item || 0));
+  const rightParts = extractVersion(right).split('.').map((item) => Number(item || 0));
+  const length = Math.max(leftParts.length, rightParts.length, 3);
+  for (let index = 0; index < length; index += 1) {
+    const leftValue = leftParts[index] || 0;
+    const rightValue = rightParts[index] || 0;
+    if (leftValue > rightValue) return 1;
+    if (leftValue < rightValue) return -1;
+  }
+  return 0;
 }
 
 function activateSettingsTab(tabId) {
@@ -192,6 +219,7 @@ function downloadJson(filename, data) {
   const link = document.createElement('a');
   link.href = url;
   link.download = filename;
+  link.dataset.forceUpdateAllowed = 'true';
   document.body.append(link);
   link.click();
   link.remove();
@@ -211,6 +239,24 @@ function readJsonFile(file) {
     reader.onerror = () => reject(new Error('读取设置文件失败。'));
     reader.readAsText(file, 'utf-8');
   });
+}
+
+async function exportCurrentSettings() {
+  await sendMessage({ type: 'SAVE_SETTINGS', payload: getAllSettingsPayload() });
+  const response = await sendMessage({ type: 'EXPORT_SETTINGS' });
+  const settings = response.settings || {};
+  const hasSensitive = settings.password || settings.sub2apiAdminKey || settings.jsonImportSub2apiAdminKey;
+  if (hasSensitive && !window.confirm('导出的设置包含密码或 SUB2API Admin API Key，请确认只在可信环境保存。是否继续导出？')) {
+    return false;
+  }
+  const date = new Date().toISOString().slice(0, 10);
+  downloadJson(`chatgpt-account-helper-settings-${date}.json`, {
+    app: 'ChatGPT 账号入库助手',
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    settings,
+  });
+  return true;
 }
 
 async function readJsonFileHandle(fileHandle) {
@@ -493,6 +539,82 @@ async function refreshState() {
   renderState(response?.state || {});
 }
 
+function renderReleaseUpdate(release) {
+  if (!release?.hasUpdate) {
+    dom.releaseUpdate.hidden = true;
+    latestReleaseUrl = '';
+    forceUpdateRequired = false;
+    return;
+  }
+  latestReleaseUrl = release.url || '';
+  forceUpdateRequired = true;
+  dom.releaseTitle.textContent = release.title || release.tagName || '插件更新';
+  dom.releaseVersion.textContent = `当前版本 ${release.currentVersion || '-'}，最新版本 ${release.tagName || release.latestVersion || '-'}`;
+  dom.releaseBody.textContent = release.body || '此版本没有填写更新说明。';
+  dom.releaseUpdate.hidden = false;
+  lockForForceUpdate();
+}
+
+function lockForForceUpdate() {
+  document.querySelectorAll('button, input, textarea, select').forEach((element) => {
+    if (element === dom.openRelease || element === dom.releaseExportSettings) return;
+    element.disabled = true;
+  });
+  dom.openRelease.disabled = false;
+  dom.releaseExportSettings.disabled = false;
+  dom.releaseUpdate.hidden = false;
+}
+
+function guardForceUpdate(event) {
+  if (!forceUpdateRequired) return;
+  if (event.target === dom.openRelease || event.target === dom.releaseExportSettings || dom.releaseUpdate.contains(event.target)) return;
+  if (event.target?.closest?.('[data-force-update-allowed="true"]')) return;
+  if (event.target?.closest?.('a[download]')) return;
+  event.preventDefault();
+  event.stopPropagation();
+  dom.releaseUpdate.hidden = false;
+}
+
+async function checkReleaseUpdate() {
+  try {
+    const response = await sendMessage({ type: 'CHECK_LATEST_RELEASE' });
+    if (response?.release) {
+      renderReleaseUpdate(response.release);
+      return;
+    }
+  } catch (error) {
+    // Fall through to direct fetch. This keeps update prompts working after older service workers.
+  }
+
+  try {
+    const response = await fetch(GITHUB_LATEST_RELEASE_API, {
+      headers: { Accept: 'application/vnd.github+json' },
+      cache: 'no-store',
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    const release = await response.json();
+    const currentVersion = chrome.runtime.getManifest().version;
+    const latestVersion = extractVersion(release.tag_name || release.name || '');
+    renderReleaseUpdate({
+      currentVersion,
+      latestVersion,
+      hasUpdate: latestVersion ? compareVersions(latestVersion, currentVersion) > 0 : false,
+      tagName: release.tag_name || '',
+      title: release.name || release.tag_name || '插件更新',
+      body: release.body || '',
+      url: release.html_url || 'https://github.com/Yese-zw/GPT_Helper/releases/latest',
+    });
+  } catch (error) {
+    dom.releaseUpdate.hidden = false;
+    latestReleaseUrl = 'https://github.com/Yese-zw/GPT_Helper/releases/latest';
+    dom.releaseTitle.textContent = '更新检查失败';
+    dom.releaseVersion.textContent = '无法连接 GitHub Releases，请确认插件已重新加载并且网络可访问 GitHub。';
+    dom.releaseBody.textContent = error.message || '未知错误';
+  }
+}
+
 dom.save.addEventListener('click', async () => {
   const response = await sendMessage({ type: 'SAVE_SETTINGS', payload: getSettingsPayload() });
   renderState(response.state);
@@ -506,21 +628,10 @@ dom.jsonSave.addEventListener('click', async () => {
 });
 
 dom.exportSettings.addEventListener('click', async () => {
-  await sendMessage({ type: 'SAVE_SETTINGS', payload: getAllSettingsPayload() });
-  const response = await sendMessage({ type: 'EXPORT_SETTINGS' });
-  const settings = response.settings || {};
-  const hasSensitive = settings.password || settings.sub2apiAdminKey || settings.jsonImportSub2apiAdminKey;
-  if (hasSensitive && !window.confirm('导出的设置包含密码或 SUB2API Admin API Key，请确认只在可信环境保存。是否继续导出？')) {
-    return;
+  const exported = await exportCurrentSettings();
+  if (exported) {
+    showSaveTip('设置已导出');
   }
-  const date = new Date().toISOString().slice(0, 10);
-  downloadJson(`chatgpt-account-helper-settings-${date}.json`, {
-    app: 'ChatGPT 账号入库助手',
-    version: 1,
-    exportedAt: new Date().toISOString(),
-    settings,
-  });
-  showSaveTip('设置已导出');
 });
 
 dom.importSettings.addEventListener('click', () => {
@@ -541,6 +652,25 @@ dom.importSettingsInput.addEventListener('change', async () => {
     dom.log.textContent = `${dom.log.textContent}\n导入设置失败：${error.message}`.trim();
   }
 });
+
+dom.openRelease.addEventListener('click', () => {
+  const url = latestReleaseUrl || 'https://github.com/Yese-zw/GPT_Helper/releases/latest';
+  chrome.tabs.create({ url });
+});
+
+dom.releaseExportSettings.addEventListener('click', async () => {
+  await exportCurrentSettings();
+});
+
+document.addEventListener('click', guardForceUpdate, true);
+document.addEventListener('submit', guardForceUpdate, true);
+document.addEventListener('keydown', (event) => {
+  if (forceUpdateRequired && event.key === 'Escape') {
+    event.preventDefault();
+    event.stopPropagation();
+    dom.releaseUpdate.hidden = false;
+  }
+}, true);
 
 dom.loadGroups.addEventListener('click', async () => {
   dom.loadGroups.disabled = true;
@@ -958,6 +1088,10 @@ chrome.runtime.onMessage.addListener((message) => {
   }
 });
 
-refreshState().catch((error) => {
-  dom.log.textContent = `初始化失败：${error.message}`;
-});
+refreshState()
+  .catch((error) => {
+    dom.log.textContent = `初始化失败：${error.message}`;
+  })
+  .finally(() => {
+    checkReleaseUpdate();
+  });

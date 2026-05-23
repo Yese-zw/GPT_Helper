@@ -2,6 +2,7 @@ const CHATGPT_URL = 'https://chatgpt.com/';
 const OPENAI_SIGNUP_URL = 'https://auth.openai.com/create-account';
 const OPENAI_AUTH_SOURCE = 'openai-auth';
 const OPENAI_SCRIPT = ['content/openai-flow.js'];
+const GITHUB_LATEST_RELEASE_API = 'https://api.github.com/repos/Yese-zw/GPT_Helper/releases/latest';
 const COOKIE_CLEAR_URLS = [
   'https://chatgpt.com/',
   'https://auth.openai.com/',
@@ -206,6 +207,49 @@ async function importSettings(settings = {}) {
     patch.jsonImportSub2apiAdminKey = patch.sub2apiAdminKey;
   }
   return setState(patch);
+}
+
+function extractVersion(value) {
+  const match = String(value || '').match(/(\d+(?:\.\d+){0,3})/);
+  return match ? match[1] : '';
+}
+
+function compareVersions(left, right) {
+  const leftParts = extractVersion(left).split('.').map((item) => Number(item || 0));
+  const rightParts = extractVersion(right).split('.').map((item) => Number(item || 0));
+  const length = Math.max(leftParts.length, rightParts.length, 3);
+  for (let index = 0; index < length; index += 1) {
+    const leftValue = leftParts[index] || 0;
+    const rightValue = rightParts[index] || 0;
+    if (leftValue > rightValue) return 1;
+    if (leftValue < rightValue) return -1;
+  }
+  return 0;
+}
+
+async function checkLatestRelease() {
+  const currentVersion = chrome.runtime.getManifest().version;
+  const response = await fetch(GITHUB_LATEST_RELEASE_API, {
+    headers: {
+      Accept: 'application/vnd.github+json',
+    },
+    cache: 'no-store',
+  });
+  if (!response.ok) {
+    throw new Error(`检查 GitHub Release 失败：HTTP ${response.status}`);
+  }
+  const release = await response.json();
+  const latestVersion = extractVersion(release.tag_name || release.name || '');
+  return {
+    currentVersion,
+    latestVersion,
+    hasUpdate: latestVersion ? compareVersions(latestVersion, currentVersion) > 0 : false,
+    tagName: release.tag_name || '',
+    title: release.name || release.tag_name || '最新版本',
+    body: release.body || '',
+    url: release.html_url || 'https://github.com/Yese-zw/GPT_Helper/releases/latest',
+    publishedAt: release.published_at || '',
+  };
 }
 
 async function resetFlowRuntime() {
@@ -1757,6 +1801,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return { state: await getState() };
       case 'GET_FLOW_RESUME_INFO':
         return getFlowResumeInfo();
+      case 'CHECK_LATEST_RELEASE':
+        return { release: await checkLatestRelease() };
       case 'SAVE_SETTINGS':
         return { state: await setState(message.payload || {}) };
       case 'EXPORT_SETTINGS':
